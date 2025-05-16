@@ -49,3 +49,4 @@ def extract_location_and_service(text: str):
     possible_location = " ".join(words).replace("need", "").replace("help", "").strip()
 
     return possible_location, found_service
+    

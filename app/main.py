@@ -5,12 +5,7 @@ from app.utils.common import parse_csv, extract_location_and_service
 from app.db.models import Service, UserQuery
 import requests
 from geopy.distance import geodesic
-import os
-import google.generativeai as genai
 from typing import Dict, Any, Optional
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyD42b36DrJON2jUIt_dUQyYUmafqqlJrhg")
-genai.configure(api_key=GEMINI_API_KEY)
 
 app = FastAPI()
 
@@ -21,7 +16,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.post("/add_service/")
 async def add_service(service: Service):
@@ -34,88 +28,24 @@ async def upload(file: UploadFile = File(...)):
     insert_services(services)
     return {"message": f"{len(services)} services uploaded successfully."}
 
-def analyze_with_gemini(query: str) -> Dict[str, Any]:
-
-    prompt = f"""
-    Analyze this service request: "{query}"
-    
-    Extract information and return only a JSON object with these fields:
-    - service_type: The specific type of service being requested. Must be one of: hospital, doctor, ambulance, automobile, pharmacy, food, police, fire, or other appropriate service category.
-    - location_mentioned: Any location mentioned in the request, or null if none
-    - urgency: High, Medium, or Low based on the request language
-    
-    For the service_type field, carefully categorize the request into the most specific category.
-    Examples:
-    - "I need a mechanic" → "automobile"
-    - "My car broke down" → "automobile"
-    - "I need medical help" → "hospital" or "doctor" depending on severity
-    - "I need medicine" → "pharmacy"
-    
-    Example response format:
-    {{
-        "service_type": "automobile",
-        "location_mentioned": "Gandhi Road",
-        "urgency": "High"
-    }}
-    
-    Return only valid JSON without any additional text or explanation.
-    """
-    
-    try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content(prompt)
-        response_text = response.text
-        
-        import json
-        import re
-        
-        json_match = re.search(r'({.*})', response_text, re.DOTALL)
-        if json_match:
-            response_text = json_match.group(1)
-            
-        response_json = json.loads(response_text)
-        return response_json
-    except Exception as e:
-        print(f"Error with Gemini API: {e}")
-        location, service = extract_location_and_service(query)
-        
-        service_mapping = {
-            "ambulance": "ambulance",
-            "doctor": "doctor",
-            "hospital": "hospital",
-            "medical": "hospital",
-            "clinic": "doctor",
-            "nurse": "doctor",
-            "car": "automobile",
-            "mechanic": "automobile",
-            "auto": "automobile",
-            "vehicle": "automobile",
-            "medicine": "pharmacy",
-            "drug": "pharmacy"
-        }
-        
-        mapped_service = service_mapping.get(service, service) if service else "unknown"
-        
-        return {
-            "service_type": mapped_service,
-            "location_mentioned": location,
-            "urgency": "Medium" 
-        }
-
 @app.post("/get_help/")
 async def get_help(user_query: UserQuery = Body(...)):
-
     query = user_query.query
     user_lat = user_query.latitude
     user_lon = user_query.longitude
-    
+
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required")
     
     if user_lat is None or user_lon is None:
         raise HTTPException(status_code=400, detail="Location coordinates are required")
-    
-    analysis = analyze_with_gemini(query)
+
+    analysis = {
+        'service_type': user_query.service_type or 'unknown',
+        'location_mentioned': user_query.location_mentioned,
+        'urgency': user_query.urgency or 'Medium'
+    }
+
     print(analysis)
     service_type = analysis.get("service_type", "unknown")
     mentioned_location = analysis.get("location_mentioned")
@@ -149,7 +79,7 @@ async def get_help(user_query: UserQuery = Body(...)):
             "automobile": ["automobile", "car", "mechanic", "garage", "vehicle", "repair", "auto"],
             "pharmacy": ["pharmacy", "medicine", "medical", "chemist", "drug store"],
             "food": ["food", "restaurant", "cafe", "catering", "meal","hotel"],
-            "police": ["police", "security", "law enforcement","thief",],
+            "police": ["police", "security", "law enforcement","thief"],
             "fire": ["fire", "firefighter", "emergency","fire extinguisher"],
         }
         
@@ -177,7 +107,7 @@ async def get_help(user_query: UserQuery = Body(...)):
             ]
     else:
         type_filtered = results
-    # define radius
+
     radius_km = 10  
     if urgency == "High":
         radius_km = 15
@@ -206,11 +136,8 @@ async def get_help(user_query: UserQuery = Body(...)):
     
     for result in filtered:
         result['distance_km'] = round(
-            geodesic(
-                (target_lat, target_lon), 
-                (result['latitude'], result['longitude'])
-            ).km, 
-            2
+            geodesic((target_lat, target_lon), (result['latitude'], result['longitude']))
+            .km, 2
         )
     
     filtered.sort(key=lambda x: x['distance_km'])
