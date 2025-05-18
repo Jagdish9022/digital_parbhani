@@ -25,7 +25,7 @@ app.add_middleware(
 @app.post("/upload_services/")
 async def upload(file: UploadFile = File(...)):
     services = parse_csv(file)
-    await insert_services(services)  # <-- await here!
+    await insert_services(services)  
     return {"message": f"{len(services)} services uploaded successfully."}
 
 @app.post("/get_help/")
