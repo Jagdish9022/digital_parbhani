@@ -2,5 +2,9 @@ fastapi
 uvicorn
 pydantic
 pandas
-qdrant-client
 python-multipart
+sqlalchemy
+asyncpg
+geoalchemy2
+psycopg2-binary
+
